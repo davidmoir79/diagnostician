@@ -10,7 +10,7 @@ DATA_FILE = Path("data.csv")
 
 @st.cache_data
 def load_data(path):
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, sep=";")
     df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(" ", "_")
 
     rename_map = {
