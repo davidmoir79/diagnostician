@@ -35,6 +35,7 @@ def load_data(path):
             df["status"].astype(str).str.extract(r"(\d+)", expand=False),
             errors="coerce",
         )
+        df.loc[~df["status_num"].between(1, 4), "status_num"] = pd.NA
     else:
         df["status_num"] = pd.NA
 
@@ -150,47 +151,27 @@ fig4 = px.pie(
 st.plotly_chart(fig4, use_container_width=True)
 
 st.subheader("Status selection by diagnostician")
+cols = st.columns(2)
 
-if "status" not in df_top.columns:
-    st.warning("No status column found in the CSV.")
-else:
-    cols = st.columns(2)
+for i, user in enumerate(top_users):
+    user_status = df_top[(df_top["user"] == user) & (df_top["status_num"].between(1, 4))].copy()
+    status_counts = user_status.groupby("status_num").size().reset_index(name="count")
 
-    for i, user in enumerate(top_users):
-        user_status = df_top[df_top["user"] == user].copy()
-
-        if user_status.empty:
-            with cols[i % 2]:
-                st.info(f"No data for {user}.")
-            continue
-
-        status_counts = (
-            user_status.dropna(subset=["status"])
-            .groupby("status")
-            .size()
-            .reset_index(name="count")
-        )
-
+    with cols[i % 2]:
         if status_counts.empty:
-            with cols[i % 2]:
-                st.info(f"No valid status values for {user}.")
-            continue
-
-        status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
-
-        fig = px.pie(
-            status_counts,
-            names="status",
-            values="count",
-            hole=0.35,
-            title=f"{user} status selection (%)",
-        )
-
-        with cols[i % 2]:
+            st.info(f"No valid status values between 1 and 4 for {user}.")
+        else:
+            status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
+            fig = px.pie(
+                status_counts,
+                names="status_num",
+                values="count",
+                hole=0.35,
+                title=f"{user} status selection (%)",
+            )
             st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Monthly table")
-
 table = (
     monthly_user.pivot_table(index="month", columns="user", values="samples", fill_value=0)
     .reindex(months_12, fill_value=0)
