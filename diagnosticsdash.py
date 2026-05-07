@@ -1,111 +1,92 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
-import re
+from pathlib import Path
 
-st.set_page_config(page_title="Diagnostics Monthly Samples", layout="wide")
-
+st.set_page_config(page_title="Diagnostics Team Sample Dashboard", layout="wide")
 st.title("Diagnostics Team Sample Dashboard")
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+DATA_FILE = Path("data.csv")
 
 @st.cache_data
-def load_data(file):
-    df = pd.read_csv(file)
+def load_data(path):
+    df = pd.read_csv(path)
+    df.columns = df.columns.str.strip().str.lower()
+
+    if "date_time" not in df.columns:
+        raise ValueError("CSV must contain a 'date_time' column")
+    if "user" not in df.columns:
+        raise ValueError("CSV must contain a 'user' column")
+
     df["date_time"] = pd.to_datetime(df["date_time"], errors="coerce")
     df = df.dropna(subset=["date_time", "user"])
+    df["user"] = df["user"].astype(str).str.strip()
+
     if "status" in df.columns:
-        df["status_number"] = (
-            df["status"]
-            .astype(str)
-            .str.extract(r"(\d+)", expand=False)
-            .astype(float)
-        )
+        df["status_num"] = df["status"].astype(str).str.extract(r"(\d+)", expand=False)
+        df["status_num"] = pd.to_numeric(df["status_num"], errors="coerce")
     else:
-        df["status_number"] = pd.NA
+        df["status_num"] = pd.NA
+
     return df
 
-def month_label(dt):
-    return dt.strftime("%Y-%m")
+if not DATA_FILE.exists():
+    st.error("data.csv not found in the app folder. Add the CSV to the repo root.")
+    st.stop()
 
-if uploaded_file:
-    df = load_data(uploaded_file)
+try:
+    df = load_data(DATA_FILE)
+except Exception as e:
+    st.error(f"Failed to load CSV: {e}")
+    st.stop()
 
-    df["month"] = df["date_time"].dt.to_period("M").dt.to_timestamp()
+latest_dt = df["date_time"].max()
+current_month = latest_dt.to_period("M").to_timestamp()
+months = pd.date_range(end=current_month, periods=24, freq="MS")
 
-    latest_month = df["month"].max()
-    last_24_months = pd.date_range(end=latest_month, periods=24, freq="MS")
-    df_24 = df[df["month"].isin(last_24_months)].copy()
+df_24 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months)].copy()
+df_24["month"] = df_24["date_time"].dt.to_period("M").dt.to_timestamp()
 
-    month_map = {last_24_months[-1]: "Last month"}
-    month_map[last_24_months[-2]] = "2 months ago"
+monthly = df_24.groupby("month").size().reindex(months, fill_value=0).reset_index()
+monthly.columns = ["month", "samples"]
+monthly["label"] = monthly["month"].dt.strftime("%b %Y")
 
-    # Monthly samples overall
-    monthly = (
-        df_24.groupby("month")
-        .size()
-        .reindex(last_24_months, fill_value=0)
-        .reset_index(name="samples")
-    )
-    monthly["display_month"] = monthly["month"].map(month_map).fillna(monthly["month"].dt.strftime("%b %Y"))
+if len(months) >= 2:
+    monthly.loc[monthly["month"] == months[-1], "label"] = "Last month"
+    monthly.loc[monthly["month"] == months[-2], "label"] = "2 months ago"
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Monthly samples")
-        fig_month = px.bar(
-            monthly,
-            x="display_month",
-            y="samples",
-            title="Samples by month",
-            text="samples",
-        )
-        fig_month.update_layout(xaxis_title="", yaxis_title="Samples")
-        st.plotly_chart(fig_month, use_container_width=True)
+user_month = df_24.groupby(["user", "month"]).size().reset_index(name="samples")
+avg_user = (
+    user_month.groupby("user", as_index=False)["samples"]
+    .mean()
+    .rename(columns={"samples": "avg_samples_per_month"})
+    .sort_values("avg_samples_per_month", ascending=False)
+)
 
-    with col2:
-        st.subheader("Average samples per month by user")
-        user_month = (
-            df_24.groupby(["user", "month"])
-            .size()
-            .reset_index(name="samples")
-        )
-        avg_user = (
-            user_month.groupby("user")["samples"]
-            .mean()
-            .reset_index(name="avg_samples_per_month")
-            .sort_values("avg_samples_per_month", ascending=False)
-        )
-        fig_user = px.bar(
-            avg_user,
-            x="user",
-            y="avg_samples_per_month",
-            title="Average samples per month per user (last 24 months)",
-            text_auto=".2f",
-        )
-        fig_user.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
-        st.plotly_chart(fig_user, use_container_width=True)
+col1, col2 = st.columns(2)
 
-    st.subheader("Status percentage breakdown")
-    status_data = df_24.dropna(subset=["status_number"]).copy()
-    status_counts = (
-        status_data.groupby("status_number")
-        .size()
-        .reset_index(name="count")
-        .sort_values("count", ascending=False)
-    )
-    status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
+with col1:
+    st.subheader("Monthly samples")
+    fig1 = px.bar(monthly, x="label", y="samples", text="samples")
+    fig1.update_layout(xaxis_title="", yaxis_title="Samples")
+    st.plotly_chart(fig1, use_container_width=True)
 
-    fig_pie = px.pie(
-        status_counts,
-        names="status_number",
-        values="count",
-        title="Status distribution for last 24 months",
-        hole=0.35,
-    )
-    st.plotly_chart(fig_pie, use_container_width=True)
+with col2:
+    st.subheader("Average samples per month by user")
+    fig2 = px.bar(avg_user, x="user", y="avg_samples_per_month", text_auto=".2f")
+    fig2.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
+    st.plotly_chart(fig2, use_container_width=True)
 
-    st.subheader("Data preview")
-    st.dataframe(df.head(50), use_container_width=True)
+st.subheader("Status percentage breakdown")
+status_df = df_24.dropna(subset=["status_num"]).copy()
+
+if status_df.empty:
+    st.warning("No valid numeric status values found in the last 24 months.")
 else:
-    st.info("Upload a CSV file to begin.")
+    status_counts = status_df.groupby("status_num").size().reset_index(name="count")
+    status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
+    fig3 = px.pie(status_counts, names="status_num", values="count", hole=0.35)
+    st.plotly_chart(fig3, use_container_width=True)
+
+st.subheader("Data preview")
+st.dataframe(df.head(100), use_container_width=True)
