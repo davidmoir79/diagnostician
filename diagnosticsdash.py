@@ -8,6 +8,8 @@ st.title("Diagnostics Team Sample Dashboard")
 
 DATA_FILE = Path("data.csv")
 WORK_DAYS_PER_MONTH = 22
+STATUS_ORDER = [0, 1, 2, 3, 4]
+STATUS_COLORS = {0: "#2ca02c", 1: "#ffe28a", 2: "#ff9999", 3: "#8b0000", 4: "#800080"}
 
 @st.cache_data
 def load_data(path):
@@ -35,7 +37,7 @@ def load_data(path):
             df["status"].astype(str).str.extract(r"(\d+)", expand=False),
             errors="coerce",
         )
-        df.loc[~df["status_num"].between(1, 4), "status_num"] = pd.NA
+        df.loc[~df["status_num"].isin(STATUS_ORDER), "status_num"] = pd.NA
     else:
         df["status_num"] = pd.NA
 
@@ -54,7 +56,6 @@ except Exception as e:
 latest_dt = df["date_time"].max()
 current_month_start = pd.Timestamp(latest_dt.year, latest_dt.month, 1)
 end_month = current_month_start - pd.DateOffset(months=1)
-
 months_12 = pd.date_range(end=end_month, periods=12, freq="MS")
 months_3 = pd.date_range(end=end_month, periods=3, freq="MS")
 
@@ -154,21 +155,29 @@ st.subheader("Status selection by diagnostician")
 cols = st.columns(2)
 
 for i, user in enumerate(top_users):
-    user_status = df_top[(df_top["user"] == user) & (df_top["status_num"].between(1, 4))].copy()
-    status_counts = user_status.groupby("status_num").size().reset_index(name="count")
+    user_status = df_top[(df_top["user"] == user) & (df_top["status_num"].isin(STATUS_ORDER))].copy()
+    status_counts = (
+        user_status.groupby("status_num").size()
+        .reset_index(name="count")
+        .set_index("status_num")
+        .reindex(STATUS_ORDER, fill_value=0)
+        .reset_index()
+    )
 
     with cols[i % 2]:
-        if status_counts.empty:
-            st.info(f"No valid status values between 1 and 4 for {user}.")
+        if status_counts["count"].sum() == 0:
+            st.info(f"No valid status values 0-4 for {user}.")
         else:
-            status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
             fig = px.pie(
                 status_counts,
                 names="status_num",
                 values="count",
                 hole=0.35,
                 title=f"{user} status selection (%)",
+                color="status_num",
+                color_discrete_map=STATUS_COLORS,
             )
+            fig.update_traces(textinfo="percent+label")
             st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Monthly table")
