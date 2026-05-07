@@ -11,14 +11,22 @@ DATA_FILE = Path("data.csv")
 @st.cache_data
 def load_data(path):
     df = pd.read_csv(path)
-    df.columns = df.columns.str.strip().str.lower()
+    df.columns = df.columns.astype(str).str.strip().str.lower().str.replace(" ", "_")
+
+    rename_map = {
+        "datetime": "date_time",
+        "date": "date_time",
+        "date-time": "date_time",
+        "sample_date": "date_time",
+    }
+    df = df.rename(columns=rename_map)
 
     if "date_time" not in df.columns:
-        raise ValueError("CSV must contain a 'date_time' column")
+        raise ValueError(f"CSV columns found: {list(df.columns)}")
     if "user" not in df.columns:
-        raise ValueError("CSV must contain a 'user' column")
+        raise ValueError(f"CSV columns found: {list(df.columns)}")
 
-    df["date_time"] = pd.to_datetime(df["date_time"], errors="coerce")
+    df["date_time"] = pd.to_datetime(df["date_time"], format="%Y/%m/%d %H:%M", errors="coerce")
     df = df.dropna(subset=["date_time", "user"])
     df["user"] = df["user"].astype(str).str.strip()
 
@@ -45,7 +53,7 @@ current_month = latest_dt.to_period("M").to_timestamp()
 months = pd.date_range(end=current_month, periods=24, freq="MS")
 
 df_24 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months)].copy()
-df_24["month"] = df_24["date_time"].dt.to_period("M").dt.to_timestamp()
+df_24["month"] = df_24["date_time"].dt.to_period("M").to_timestamp()
 
 monthly = df_24.groupby("month").size().reindex(months, fill_value=0).reset_index()
 monthly.columns = ["month", "samples"]
