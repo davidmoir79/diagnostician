@@ -29,18 +29,33 @@ def load_data(path):
     df["date_time"] = pd.to_datetime(df["date_time"], format="%Y/%m/%d %H:%M", errors="coerce")
     df = df.dropna(subset=["date_time", "user"])
     df["user"] = df["user"].astype(str).str.strip()
+
+    if "status" in df.columns:
+        df["status_num"] = pd.to_numeric(
+            df["status"].astype(str).str.extract(r"(\d+)", expand=False),
+            errors="coerce",
+        )
+    else:
+        df["status_num"] = pd.NA
+
     return df
 
 if not DATA_FILE.exists():
     st.error("data.csv not found in the app folder. Add the CSV to the repo root.")
     st.stop()
 
-df = load_data(DATA_FILE)
+try:
+    df = load_data(DATA_FILE)
+except Exception as e:
+    st.error(f"Failed to load CSV: {e}")
+    st.stop()
 
 latest_dt = df["date_time"].max()
 current_month_start = pd.Timestamp(latest_dt.year, latest_dt.month, 1)
 end_month = current_month_start - pd.DateOffset(months=1)
+
 months_12 = pd.date_range(end=end_month, periods=12, freq="MS")
+months_3 = pd.date_range(end=end_month, periods=3, freq="MS")
 
 df_12 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months_12)].copy()
 df_12["month"] = df_12["date_time"].dt.to_period("M").dt.to_timestamp()
@@ -90,6 +105,25 @@ fig2 = px.bar(
 fig2.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
 st.plotly_chart(fig2, use_container_width=True)
 
+last3 = df_top[df_top["month"].isin(months_3)].copy()
+last3_user_month = last3.groupby(["user", "month"]).size().reset_index(name="samples")
+last3_avg = (
+    last3_user_month.groupby("user", as_index=False)["samples"]
+    .mean()
+    .rename(columns={"samples": "avg_samples_per_month"})
+)
+last3_avg = last3_avg.set_index("user").reindex(top_users).reset_index()
+
+fig2b = px.bar(
+    last3_avg,
+    x="user",
+    y="avg_samples_per_month",
+    text_auto=".2f",
+    title="Average samples per month per diagnostician (last 3 complete months)",
+)
+fig2b.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
+st.plotly_chart(fig2b, use_container_width=True)
+
 avg_day = avg_month.copy()
 avg_day["avg_samples_per_day"] = avg_day["avg_samples_per_month"] / WORK_DAYS_PER_MONTH
 
@@ -115,7 +149,48 @@ fig4 = px.pie(
 )
 st.plotly_chart(fig4, use_container_width=True)
 
+st.subheader("Status selection by diagnostician")
+
+if "status" not in df_top.columns:
+    st.warning("No status column found in the CSV.")
+else:
+    cols = st.columns(2)
+
+    for i, user in enumerate(top_users):
+        user_status = df_top[df_top["user"] == user].copy()
+
+        if user_status.empty:
+            with cols[i % 2]:
+                st.info(f"No data for {user}.")
+            continue
+
+        status_counts = (
+            user_status.dropna(subset=["status"])
+            .groupby("status")
+            .size()
+            .reset_index(name="count")
+        )
+
+        if status_counts.empty:
+            with cols[i % 2]:
+                st.info(f"No valid status values for {user}.")
+            continue
+
+        status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
+
+        fig = px.pie(
+            status_counts,
+            names="status",
+            values="count",
+            hole=0.35,
+            title=f"{user} status selection (%)",
+        )
+
+        with cols[i % 2]:
+            st.plotly_chart(fig, use_container_width=True)
+
 st.subheader("Monthly table")
+
 table = (
     monthly_user.pivot_table(index="month", columns="user", values="samples", fill_value=0)
     .reindex(months_12, fill_value=0)
