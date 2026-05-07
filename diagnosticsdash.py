@@ -53,7 +53,7 @@ current_month = latest_dt.to_period("M").to_timestamp()
 months = pd.date_range(end=current_month, periods=24, freq="MS")
 
 df_24 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months)].copy()
-df_24["month"] = df_24["date_time"].dt.to_period("M").to_timestamp()
+df_24["month"] = df_24["date_time"].dt.to_period("M").dt.to_timestamp()
 
 monthly = df_24.groupby("month").size().reindex(months, fill_value=0).reset_index()
 monthly.columns = ["month", "samples"]
