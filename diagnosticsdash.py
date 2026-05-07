@@ -31,8 +31,10 @@ def load_data(path):
     df["user"] = df["user"].astype(str).str.strip()
 
     if "status" in df.columns:
-        df["status_num"] = df["status"].astype(str).str.extract(r"(\d+)", expand=False)
-        df["status_num"] = pd.to_numeric(df["status_num"], errors="coerce")
+        df["status_num"] = pd.to_numeric(
+            df["status"].astype(str).str.extract(r"(\d+)", expand=False),
+            errors="coerce",
+        )
     else:
         df["status_num"] = pd.NA
 
@@ -50,51 +52,41 @@ except Exception as e:
 
 latest_dt = df["date_time"].max()
 current_month = latest_dt.to_period("M").to_timestamp()
-months = pd.date_range(end=current_month, periods=24, freq="MS")
+months_12 = pd.date_range(end=current_month, periods=12, freq="MS")
 
-df_24 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months)].copy()
-df_24["month"] = df_24["date_time"].dt.to_period("M").dt.to_timestamp()
+df_12 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months_12)].copy()
+df_12["month"] = df_12["date_time"].dt.to_period("M").dt.to_timestamp()
 
-monthly = df_24.groupby("month").size().reindex(months, fill_value=0).reset_index()
-monthly.columns = ["month", "samples"]
-monthly["label"] = monthly["month"].dt.strftime("%b %Y")
+top_users = df_12["user"].value_counts().head(4).index.tolist()
+df_top = df_12[df_12["user"].isin(top_users)].copy()
 
-if len(months) >= 2:
-    monthly.loc[monthly["month"] == months[-1], "label"] = "Last month"
-    monthly.loc[monthly["month"] == months[-2], "label"] = "2 months ago"
+st.subheader("Top 4 diagnosticians")
+st.write(", ".join(top_users))
 
-user_month = df_24.groupby(["user", "month"]).size().reset_index(name="samples")
-avg_user = (
-    user_month.groupby("user", as_index=False)["samples"]
-    .mean()
-    .rename(columns={"samples": "avg_samples_per_month"})
-    .sort_values("avg_samples_per_month", ascending=False)
+monthly_user = df_top.groupby(["month", "user"]).size().reset_index(name="samples")
+monthly_user["label"] = monthly_user["month"].dt.strftime("%b %Y")
+month_order = [m.strftime("%b %Y") for m in months_12]
+monthly_user["label"] = pd.Categorical(monthly_user["label"], categories=month_order, ordered=True)
+
+fig = px.bar(
+    monthly_user,
+    x="label",
+    y="samples",
+    color="user",
+    barmode="group",
+    category_orders={"label": month_order, "user": top_users},
+    text="samples",
+    title="Monthly samples per top 4 diagnosticians (last 12 months)",
 )
+fig.update_layout(xaxis_title="Month", yaxis_title="Samples")
+st.plotly_chart(fig, use_container_width=True)
 
-col1, col2 = st.columns(2)
+st.subheader("Monthly table")
+table = monthly_user.pivot_table(
+    index="label",
+    columns="user",
+    values="samples",
+    fill_value=0,
+).reindex(month_order)
 
-with col1:
-    st.subheader("Monthly samples")
-    fig1 = px.bar(monthly, x="label", y="samples", text="samples")
-    fig1.update_layout(xaxis_title="", yaxis_title="Samples")
-    st.plotly_chart(fig1, use_container_width=True)
-
-with col2:
-    st.subheader("Average samples per month by user")
-    fig2 = px.bar(avg_user, x="user", y="avg_samples_per_month", text_auto=".2f")
-    fig2.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
-    st.plotly_chart(fig2, use_container_width=True)
-
-st.subheader("Status percentage breakdown")
-status_df = df_24.dropna(subset=["status_num"]).copy()
-
-if status_df.empty:
-    st.warning("No valid numeric status values found in the last 24 months.")
-else:
-    status_counts = status_df.groupby("status_num").size().reset_index(name="count")
-    status_counts["percent"] = 100 * status_counts["count"] / status_counts["count"].sum()
-    fig3 = px.pie(status_counts, names="status_num", values="count", hole=0.35)
-    st.plotly_chart(fig3, use_container_width=True)
-
-st.subheader("Data preview")
-st.dataframe(df.head(100), use_container_width=True)
+st.dataframe(table, use_container_width=True)
