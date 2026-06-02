@@ -86,24 +86,46 @@ with st.sidebar:
     st.write(f"**Total Valid Rows:** {len(df)}")
     st.write(f"**Max Date Detected:** {latest_dt}")
 
-monthly_user = df_top.groupby(["month", "user"]).size().reset_index(name="samples")
+# --- NEW: COMBINED LINE GRAPH PROCESSING (TOP 4 + TOTAL) ---
 month_order = [m.strftime("%b %Y") for m in months_12]
-monthly_user["label"] = monthly_user["month"].dt.strftime("%b %Y")
-monthly_user["label"] = pd.Categorical(monthly_user["label"], categories=month_order, ordered=True)
 
-fig1 = px.bar(
-    monthly_user,
+# 1. Monthly counts for top 4 individual users
+monthly_top_users = df_top.groupby(["month", "user"]).size().reset_index(name="samples")
+monthly_top_users["label"] = monthly_top_users["month"].dt.strftime("%b %Y")
+
+# 2. Monthly totals across ALL users (even outside top 4)
+monthly_grand_total = df_12.groupby("month").size().reset_index(name="samples")
+monthly_grand_total["user"] = "TOTAL (All Users)"
+monthly_grand_total["label"] = monthly_grand_total["month"].dt.strftime("%b %Y")
+
+# 3. Concatenate datasets together for a unified line chart
+combined_line_data = pd.concat([monthly_top_users, monthly_grand_total], ignore_index=True)
+combined_line_data["label"] = pd.Categorical(combined_line_data["label"], categories=month_order, ordered=True)
+
+# Define clean custom ordering for the legend list
+legend_order = ["TOTAL (All Users)"] + top_users
+
+fig1 = px.line(
+    combined_line_data,
     x="label",
     y="samples",
     color="user",
-    barmode="group",
-    category_orders={"label": month_order, "user": top_users},
-    text="samples",
-    title="Monthly samples per top 4 diagnosticians (last 12 complete months)",
+    category_orders={"label": month_order, "user": legend_order},
+    markers=True,
+    title="Monthly samples: Top 4 vs. Grand Total (last 12 complete months)",
+)
+
+# Show numbers ONLY for the grand total line to avoid massive text overlap clutter
+fig1.update_traces(
+    texttemplate="%{y}",
+    textposition="top center",
+    selector=dict(name="TOTAL (All Users)")
 )
 fig1.update_layout(xaxis_title="Month", yaxis_title="Samples")
 st.plotly_chart(fig1, use_container_width=True)
 
+
+# --- REST OF THE METRICS ---
 user_month = df_top.groupby(["user", "month"]).size().reset_index(name="samples")
 avg_month = (
     user_month.groupby("user", as_index=False)["samples"]
@@ -211,9 +233,8 @@ for i, user in enumerate(top_users):
             st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("Monthly table")
-table = (
-    monthly_user.pivot_table(index="month", columns="user", values="samples", fill_value=0)
-    .reindex(months_12, fill_value=0)
-)
+# Rebuild the table source pivot to match the graph's clean structure
+table_source = monthly_top_users.pivot_table(index="month", columns="user", values="samples", fill_value=0)
+table = table_source.reindex(months_12, fill_value=0)
 table.index = table.index.strftime("%b %Y")
 st.dataframe(table, use_container_width=True)
