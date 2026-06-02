@@ -58,11 +58,10 @@ except Exception as e:
     st.error(f"Failed to load CSV: {e}")
     st.stop()
 
-# --- REVISED DATE LOGIC ---
 latest_dt = df["date_time"].max()
 current_month_start = pd.Timestamp(latest_dt.year, latest_dt.month, 1)
 
-# FIXED: Set end_month to include the latest month found in your data instead of subtracting 1
+# Set end_month to include the latest month found in your data instead of subtracting 1
 end_month = current_month_start 
 
 months_12 = pd.date_range(end=end_month, periods=12, freq="MS")
@@ -77,13 +76,11 @@ df_top = df_12[df_12["user"].isin(top_users)].copy()
 st.subheader("Top 4 diagnosticians")
 st.write(", ".join(top_users))
 
-# FIXED: Updated the caption text to reflect that the current month is now included
 st.caption(
     f"Reporting period: {months_12[0].strftime('%b %Y')} to {months_12[-1].strftime('%b %Y')} "
     f"(includes current/latest month)"
 )
 
-# --- DEBUGGING SNEAK PEEK (Optional, handy if things look weird) ---
 with st.sidebar:
     st.markdown("### Data Status Summary")
     st.write(f"**Total Valid Rows:** {len(df)}")
@@ -143,6 +140,7 @@ fig2b = px.bar(
 fig2b.update_layout(xaxis_title="User", yaxis_title="Avg samples/month")
 st.plotly_chart(fig2b, use_container_width=True)
 
+# --- 12 MONTH DAILY AVERAGE ---
 avg_day = avg_month.copy()
 avg_day["avg_samples_per_day"] = avg_day["avg_samples_per_month"] / WORK_DAYS_PER_MONTH
 
@@ -156,51 +154,19 @@ fig3 = px.bar(
 fig3.update_layout(xaxis_title="User", yaxis_title="Avg samples/day")
 st.plotly_chart(fig3, use_container_width=True)
 
-workload = df_top.groupby("user").size().reset_index(name="total_samples")
-workload["percent_workload"] = 100 * workload["total_samples"] / workload["total_samples"].sum()
+# --- NEW: 3 MONTH DAILY AVERAGE ---
+avg_day_3 = last3_avg.copy()
+avg_day_3["avg_samples_per_day"] = avg_day_3["avg_samples_per_month"] / WORK_DAYS_PER_MONTH
 
-fig4 = px.pie(
-    workload,
-    names="user",
-    values="total_samples",
-    hole=0.35,
-    title="Percent of total workload by diagnostician (last 12 complete months)",
+fig3b = px.bar(
+    avg_day_3,
+    x="user",
+    y="avg_samples_per_day",
+    text_auto=".2f",
+    title="Average samples per day per diagnostician (22 work days/month, last 3 complete months)",
 )
-st.plotly_chart(fig4, use_container_width=True)
+fig3b.update_layout(xaxis_title="User", yaxis_title="Avg samples/day")
+st.plotly_chart(fig3b, use_container_width=True)
 
-st.subheader("Status selection by diagnostician")
-cols = st.columns(2)
 
-for i, user in enumerate(top_users):
-    user_status = df_top[(df_top["user"] == user) & (df_top["status_num"].isin(STATUS_ORDER))].copy()
-    status_counts = (
-        user_status.groupby("status_num").size()
-        .reset_index(name="count")
-        .set_index("status_num")
-        .reindex(STATUS_ORDER, fill_value=0)
-        .reset_index()
-    )
-
-    with cols[i % 2]:
-        if status_counts["count"].sum() == 0:
-            st.info(f"No valid status values 0-4 for {user}.")
-        else:
-            fig = px.pie(
-                status_counts,
-                names="status_num",
-                values="count",
-                hole=0.35,
-                title=f"{user} status selection (%)",
-                color="status_num",
-                color_discrete_map=STATUS_COLORS,
-            )
-            fig.update_traces(textinfo="percent+label")
-            st.plotly_chart(fig, use_container_width=True)
-
-st.subheader("Monthly table")
-table = (
-    monthly_user.pivot_table(index="month", columns="user", values="samples", fill_value=0)
-    .reindex(months_12, fill_value=0)
-)
-table.index = table.index.strftime("%b %Y")
-st.dataframe(table, use_container_width=True)
+workload = df_top.
