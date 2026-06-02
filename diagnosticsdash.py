@@ -28,7 +28,12 @@ def load_data(path):
     if "user" not in df.columns:
         raise ValueError(f"CSV columns found: {list(df.columns)}")
 
+    # Try standard format first, fallback to mixed/flexible parsing if it fails
     df["date_time"] = pd.to_datetime(df["date_time"], format="%Y/%m/%d %H:%M", errors="coerce")
+    fallback_mask = df["date_time"].isna()
+    if fallback_mask.any():
+        df.loc[fallback_mask, "date_time"] = pd.to_datetime(df.loc[fallback_mask, "date_time"], errors="coerce")
+
     df = df.dropna(subset=["date_time", "user"])
     df["user"] = df["user"].astype(str).str.strip()
 
@@ -53,9 +58,13 @@ except Exception as e:
     st.error(f"Failed to load CSV: {e}")
     st.stop()
 
+# --- REVISED DATE LOGIC ---
 latest_dt = df["date_time"].max()
 current_month_start = pd.Timestamp(latest_dt.year, latest_dt.month, 1)
-end_month = current_month_start - pd.DateOffset(months=1)
+
+# FIXED: Set end_month to include the latest month found in your data instead of subtracting 1
+end_month = current_month_start 
+
 months_12 = pd.date_range(end=end_month, periods=12, freq="MS")
 months_3 = pd.date_range(end=end_month, periods=3, freq="MS")
 
@@ -67,10 +76,18 @@ df_top = df_12[df_12["user"].isin(top_users)].copy()
 
 st.subheader("Top 4 diagnosticians")
 st.write(", ".join(top_users))
+
+# FIXED: Updated the caption text to reflect that the current month is now included
 st.caption(
     f"Reporting period: {months_12[0].strftime('%b %Y')} to {months_12[-1].strftime('%b %Y')} "
-    f"(current month excluded)"
+    f"(includes current/latest month)"
 )
+
+# --- DEBUGGING SNEAK PEEK (Optional, handy if things look weird) ---
+with st.sidebar:
+    st.markdown("### Data Status Summary")
+    st.write(f"**Total Valid Rows:** {len(df)}")
+    st.write(f"**Max Date Detected:** {latest_dt}")
 
 monthly_user = df_top.groupby(["month", "user"]).size().reset_index(name="samples")
 month_order = [m.strftime("%b %Y") for m in months_12]
