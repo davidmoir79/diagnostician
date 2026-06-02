@@ -77,15 +77,11 @@ except Exception as e:
 latest_dt = df["date_time"].max()
 current_month_start = pd.Timestamp(latest_dt.year, latest_dt.month, 1)
 end_month = current_month_start 
-
 months_12 = pd.date_range(end=end_month, periods=12, freq="MS")
 months_3 = pd.date_range(end=end_month, periods=3, freq="MS")
 
 df_12 = df[df["date_time"].dt.to_period("M").dt.to_timestamp().isin(months_12)].copy()
 df_12["month"] = df_12["date_time"].dt.to_period("M").dt.to_timestamp()
-
-top_users = df_12["user"].value_counts().head(4).index.tolist()
-df_top = df_12[df_12["user"].isin(top_users)].copy()
 
 # --- SIDEBAR STATISTICS ---
 with st.sidebar:
