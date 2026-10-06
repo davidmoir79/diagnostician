@@ -209,5 +209,42 @@ with col_pie2:
     status_cols = st.columns(2)
     for i, user in enumerate(top_users):
         user_status = df_top[df_top["user"] == user].copy()
+        
+        # Simplified, explicit status count logic
         status_counts = (
-            user_status.groupby("status_num").size()
+            user_status
+            .groupby("status_num")
+            .size()
+            .reset_index(name="count")
+        )
+        
+        # Ensure all statuses 0–4 are present
+        status_counts = status_counts.set_index("status_num").reindex(STATUS_ORDER, fill_value=0).reset_index()
+
+        with status_cols[i % 2]:
+            if status_counts["count"].sum() == 0:
+                st.caption(f"No valid status data for {user}.")
+            else:
+                fig = px.pie(
+                    status_counts,
+                    names="status_num",
+                    values="count",
+                    hole=0.35,
+                    title=f"{user} Status Mix",
+                    color="status_num",
+                    color_discrete_map=STATUS_COLORS,
+                )
+                fig.update_traces(textinfo="percent")
+                if i % 2 == 1:
+                    fig.update_layout(showlegend=False)
+                fig.update_layout(margin=dict(t=30, b=10, l=10, r=10))
+                st.plotly_chart(fig, use_container_width=True)
+
+
+# --- DATA SUMMARY MATRIX ---
+st.markdown("---")
+st.subheader("📋 Monthly Production Summary")
+table_source = monthly_top_users.pivot_table(index="month", columns="user", values="samples", fill_value=0)
+table = table_source.reindex(months_12, fill_value=0)
+table.index = table.index.strftime("%b %Y")
+st.dataframe(table, use_container_width=True)
