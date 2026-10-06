@@ -117,32 +117,30 @@ fig_total.update_traces(
 fig_total.update_layout(xaxis_title="Month", yaxis_title="Samples", showlegend=False)
 st.plotly_chart(fig_total, use_container_width=True)
 
-# --- INDIVIDUAL LINE GRAPHS FOR EACH DIAGNOSTICIAN ---
-st.subheader("📈 Individual Diagnostician Trends (Last 12 Months)")
+# --- LINE GRAPH: ALL 4 DIAGNOSTICIANS TOGETHER ---
+st.subheader("📈 Diagnostician Trends (Last 12 Months)")
 
 monthly_top_users = df_top.groupby(["month", "user"]).size().reset_index(name="samples")
 monthly_top_users["label"] = monthly_top_users["month"].dt.strftime("%b %Y")
 monthly_top_users["label"] = pd.Categorical(monthly_top_users["label"], categories=month_order, ordered=True)
 
-for user in top_users:
-    user_data = monthly_top_users[monthly_top_users["user"] == user].copy()
-    if user_data.empty:
-        continue
+legend_order = top_users  # ensures consistent order
 
-    fig_user = px.line(
-        user_data,
-        x="label",
-        y="samples",
-        markers=True,
-        title=f"Monthly samples: {user}",
-    )
-    fig_user.update_traces(
-        text=user_data["samples"],
-        textposition="top center",
-        mode="lines+markers+text",
-    )
-    fig_user.update_layout(xaxis_title="Month", yaxis_title="Samples", showlegend=False)
-    st.plotly_chart(fig_user, use_container_width=True)
+fig_users = px.line(
+    monthly_top_users,
+    x="label",
+    y="samples",
+    color="user",
+    category_orders={"user": legend_order},
+    markers=True,
+    title="Monthly samples: Top 4 Diagnosticians",
+)
+fig_users.update_layout(
+    xaxis_title="Month",
+    yaxis_title="Samples",
+    legend_title_text="Diagnostician",
+)
+st.plotly_chart(fig_users, use_container_width=True)
 
 # --- DUAL-COLUMN TIME ANALYSIS METRICS ---
 st.markdown("---")
@@ -213,29 +211,3 @@ with col_pie2:
         user_status = df_top[df_top["user"] == user].copy()
         status_counts = (
             user_status.groupby("status_num").size()
-            .reset_index(name="count")
-            .set_index("status_num")
-            .reindex(STATUS_ORDER, fill_value=0)
-            .reset_index()
-        )
-
-        with status_cols[i % 2]:
-            if status_counts["count"].sum() == 0:
-                st.caption(f"No valid status data for {user}.")
-            else:
-                fig = px.pie(
-                    status_counts, names="status_num", values="count", hole=0.35,
-                    title=f"{user} Status Mix", color="status_num", color_discrete_map=STATUS_COLORS,
-                )
-                fig.update_traces(textinfo="percent")
-                fig.update_layout(showlegend=False if i % 2 == 1 else True, margin=dict(t=30, b=10, l=10, r=10))
-                st.plotly_chart(fig, use_container_width=True)
-
-
-# --- DATA SUMMARY MATRIX ---
-st.markdown("---")
-st.subheader("📋 Monthly Production Summary")
-table_source = monthly_top_users.pivot_table(index="month", columns="user", values="samples", fill_value=0)
-table = table_source.reindex(months_12, fill_value=0)
-table.index = table.index.strftime("%b %Y")
-st.dataframe(table, use_container_width=True)
